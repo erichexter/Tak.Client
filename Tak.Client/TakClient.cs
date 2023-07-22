@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.Text;
 using System.Xml;
 using System.IO.Compression;
+using System.Security.Authentication;
 using TheBentern.Tak.Client.Generated;
 using TheBentern.Tak.Client.Providers;
 using System.Xml.Serialization;
@@ -58,7 +59,7 @@ public class TakClient
         client.Connect(host, port);
         sslStream = new SslStream(client.GetStream(), false, new RemoteCertificateValidationCallback(CertificateValidationCallback));
 
-        await sslStream.AuthenticateAsClientAsync(host, certCollection, false);
+        await sslStream.AuthenticateAsClientAsync(host, certCollection,SslProtocols.Tls12|SslProtocols.Tls13|SslProtocols.Tls11, false);
     }
 
     /// <summary>
@@ -67,7 +68,8 @@ public class TakClient
     /// <returns></returns>
     public async Task ListenAsync(Func<Event, Task> ReceivedCoTEvent, CancellationToken cancellationToken = default)
     {
-        await ConnectAsync();
+        if(!client.Connected)
+            await ConnectAsync();
 
         while (client.Connected)
         {
@@ -136,6 +138,9 @@ public class TakClient
     /// <returns></returns>
     public async Task SendAsync(Message message, CancellationToken cancellationToken = default)
     {
+        if(!client.Connected)
+            await ConnectAsync();
+
         await sslStream!.WriteAsync(message.ToXmlBytes(), cancellationToken);
     }
 
@@ -150,7 +155,7 @@ public class TakClient
     private Preferences GetPackageManifest()
     {
         using var package = new ZipArchive(new FileStream(packagePath!, FileMode.Open));
-        var prefEntry = package.Entries.First(e => e.Name.Contains("preference.pref"));
+        var prefEntry = package.Entries.First(e => e.Name.EndsWith(".pref"));
         using var prefStream = prefEntry.Open();
         var xmlStream = new StreamReader(prefStream);
         XmlSerializer serializer = new(typeof(Preferences));
