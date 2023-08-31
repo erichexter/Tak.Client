@@ -1,4 +1,5 @@
-﻿using dpp.cot;
+﻿using System.Diagnostics;
+using dpp.cot;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
@@ -10,6 +11,7 @@ using System.Security.Authentication;
 using TheBentern.Tak.Client.Generated;
 using TheBentern.Tak.Client.Providers;
 using System.Xml.Serialization;
+using ProtoBuf;
 
 namespace TheBentern.Tak.Client;
 
@@ -66,7 +68,7 @@ public class TakClient
     /// Start the connection via SSL stream to the TAK Server and respond to received CoT events
     /// </summary>
     /// <returns></returns>
-    public async Task ListenAsync(Func<Event, Task> ReceivedCoTEvent, CancellationToken cancellationToken = default)
+    public async Task ListenAsync(Func<Event1, Task> ReceivedCoTEvent, CancellationToken cancellationToken = default)
     {
         if(!client.Connected)
             await ConnectAsync();
@@ -85,25 +87,39 @@ public class TakClient
                     while (reader.Read() && !reader.EOF)
                     {
                         if (reader.NodeType == XmlNodeType.Element && reader.Name == "event")
-                            await ReceivedCoTEvent(Event.Parse(reader.ReadOuterXml()));
+                        {
+                            var payload = reader.ReadOuterXml();
+                            Debug.WriteLine(payload);
+                            var @event = Parse(payload);
+                            @event.Raw = payload;
+                            await ReceivedCoTEvent(@event);
+                        }
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    Debug.WriteLine("exception "+ ex);
                     //TODO: ILogger
                 }
             }
             await Task.Delay(100, cancellationToken);
         }
     }
+    public Event1 Parse(string payload)
+    {
+        XmlSerializer xmlSerializer = new XmlSerializer(typeof(Event1));
+        using StringReader textReader = new StringReader(payload);
+        return (Event1)xmlSerializer.Deserialize(textReader);
+    }
+
 
     /// <summary>
     /// Read CoT Events from server in buffer
     /// </summary>
     /// <returns></returns>
-    public async Task<IEnumerable<Event>> ReadEventsAsync(CancellationToken cancellationToken = default)
+    public async Task<IEnumerable<Event1>> ReadEventsAsync(CancellationToken cancellationToken = default)
     {
-        var events = new List<Event>();
+        var events = new List<Event1>();
 
         if (!client.Connected)
             return events;
@@ -120,7 +136,7 @@ public class TakClient
                 while (reader.Read() && !reader.EOF)
                 {
                     if (reader.NodeType == XmlNodeType.Element && reader.Name == "event")
-                        events.Add(Event.Parse(reader.ReadOuterXml()));
+                        events.Add(Parse(reader.ReadOuterXml()));
                 }
             }
             catch (Exception)
@@ -175,4 +191,11 @@ public class TakClient
 
         return (host, port);
     }
+}
+
+[ProtoContract]
+[XmlRoot(ElementName = "event")]
+public class Event1 : Event
+{
+    public string Raw { get; set; }
 }
